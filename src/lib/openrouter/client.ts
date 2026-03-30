@@ -1,6 +1,6 @@
 import type { LLMConfig } from '@/types';
 
-const DEFAULT_MODEL = 'nvidia/nemotron-3-super-49b';
+const DEFAULT_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
 
 interface OpenRouterMessage {
   role: 'system' | 'user' | 'assistant';
