@@ -38,7 +38,13 @@ export async function GET(
       a.order_index - b.order_index
     );
 
-    return NextResponse.json({ project });
+    return NextResponse.json({
+      project: {
+        ...project,
+        nodes: project.nd_nodes || [],
+        edges: project.nd_edges || [],
+      },
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'サーバーエラー' },
