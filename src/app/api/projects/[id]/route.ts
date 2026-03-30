@@ -13,11 +13,11 @@ export async function GET(
 
     // Fetch project (RLS handles visibility check)
     const query = supabase
-      .from('projects')
+      .from('nd_projects')
       .select(`
         *,
-        nodes (*),
-        edges (*)
+        nd_nodes (*),
+        nd_edges (*)
       `)
       .eq('id', id)
       .single();
@@ -34,7 +34,7 @@ export async function GET(
     }
 
     // Sort nodes by order_index
-    project.nodes.sort((a: { order_index: number }, b: { order_index: number }) =>
+    project.nd_nodes.sort((a: { order_index: number }, b: { order_index: number }) =>
       a.order_index - b.order_index
     );
 
@@ -71,7 +71,7 @@ export async function PATCH(
     }
 
     const { data: project, error } = await supabase
-      .from('projects')
+      .from('nd_projects')
       .update(updates)
       .eq('id', id)
       .eq('user_id', user.id)
@@ -105,7 +105,7 @@ export async function DELETE(
     }
 
     const { error } = await supabase
-      .from('projects')
+      .from('nd_projects')
       .delete()
       .eq('id', id)
       .eq('user_id', user.id);

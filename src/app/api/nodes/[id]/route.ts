@@ -29,7 +29,7 @@ export async function PATCH(
 
     // Verify ownership via project
     const { data: node } = await supabase
-      .from('nodes')
+      .from('nd_nodes')
       .select('project_id')
       .eq('id', id)
       .single();
@@ -39,7 +39,7 @@ export async function PATCH(
     }
 
     const { data: project } = await supabase
-      .from('projects')
+      .from('nd_projects')
       .select('user_id')
       .eq('id', node.project_id)
       .single();
@@ -49,7 +49,7 @@ export async function PATCH(
     }
 
     const { data: updated, error } = await supabase
-      .from('nodes')
+      .from('nd_nodes')
       .update(updates)
       .eq('id', id)
       .select()

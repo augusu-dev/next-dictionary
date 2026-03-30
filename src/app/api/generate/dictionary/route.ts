@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     let usedUserKey = false;
 
     const { data: userKey } = await supabase
-      .from('user_provider_keys')
+      .from('nd_user_provider_keys')
       .select('encrypted_key')
       .eq('user_id', user.id)
       .eq('provider', 'openrouter')
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
     const projectTitle = parsed.title || `${topic.trim()} 用語集`;
 
     const { data: project, error: projectError } = await supabase
-      .from('projects')
+      .from('nd_projects')
       .insert({
         user_id: user.id,
         title: projectTitle,
@@ -93,7 +93,7 @@ export async function POST(request: Request) {
     }));
 
     const { data: savedNodes, error: nodesError } = await supabase
-      .from('nodes')
+      .from('nd_nodes')
       .insert(nodesToInsert)
       .select();
 
@@ -102,7 +102,7 @@ export async function POST(request: Request) {
     }
 
     // Log generation
-    await supabase.from('generation_logs').insert({
+    await supabase.from('nd_generation_logs').insert({
       user_id: user.id,
       project_id: project.id,
       mode: 'dictionary',
@@ -129,7 +129,7 @@ export async function POST(request: Request) {
       const supabase = await createClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        await supabase.from('generation_logs').insert({
+        await supabase.from('nd_generation_logs').insert({
           user_id: user.id,
           mode: 'dictionary',
           status: 'failed',

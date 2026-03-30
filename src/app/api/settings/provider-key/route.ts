@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     const encryptedKey = encrypt(api_key, secret);
 
     const { error } = await supabase
-      .from('user_provider_keys')
+      .from('nd_user_provider_keys')
       .upsert(
         {
           user_id: user.id,
@@ -67,7 +67,7 @@ export async function DELETE(request: Request) {
     }
 
     const { error } = await supabase
-      .from('user_provider_keys')
+      .from('nd_user_provider_keys')
       .delete()
       .eq('user_id', user.id)
       .eq('provider', provider);

@@ -20,7 +20,7 @@ const modeLabels: Record<ProjectMode, string> = {
 };
 
 interface PublicProject extends ProjectListItem {
-  profiles: { display_name: string | null } | null;
+  nd_profiles: { display_name: string | null } | null;
 }
 
 export default function LibraryPage() {
@@ -36,8 +36,8 @@ export default function LibraryPage() {
         const supabase = createClient();
 
         let query = supabase
-          .from('projects')
-          .select('id, title, topic, mode, visibility, updated_at, profiles(display_name)')
+          .from('nd_projects')
+          .select('id, title, topic, mode, visibility, updated_at, nd_profiles(display_name)')
           .eq('visibility', 'public')
           .order('updated_at', { ascending: false });
 
@@ -93,7 +93,7 @@ export default function LibraryPage() {
                 <div className="flex items-center gap-2">
                   <Badge variant="outline">{modeLabels[project.mode]}</Badge>
                   <span className="text-xs text-muted-foreground">
-                    {project.profiles?.display_name || '匿名'}
+                    {project.nd_profiles?.display_name || '匿名'}
                   </span>
                   <span className="text-xs text-muted-foreground ml-auto">
                     {new Date(project.updated_at).toLocaleDateString('ja-JP')}

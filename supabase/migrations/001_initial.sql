@@ -1,47 +1,64 @@
 -- Next Dictionary: Initial Migration
 -- ====================================
+-- nd_ プレフィックス付きテーブルで他プロジェクトと安全に共存
 
--- 1. profiles
-CREATE TABLE IF NOT EXISTS public.profiles (
+-- 0. 共通トリガー関数
+CREATE OR REPLACE FUNCTION public.nd_update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Auto-create profile on signup
+CREATE OR REPLACE FUNCTION public.nd_handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.nd_profiles (id, display_name)
+  VALUES (
+    NEW.id,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1))
+  )
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 既存の on_auth_user_created トリガーがあれば削除して作り直す
+DROP TRIGGER IF EXISTS nd_on_auth_user_created ON auth.users;
+CREATE TRIGGER nd_on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.nd_handle_new_user();
+
+-- ============================================
+
+-- 1. nd_profiles
+CREATE TABLE IF NOT EXISTS public.nd_profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   display_name TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.nd_profiles ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Profiles are viewable by everyone"
-  ON public.profiles FOR SELECT
+CREATE POLICY "ND: Profiles are viewable by everyone"
+  ON public.nd_profiles FOR SELECT
   USING (true);
 
-CREATE POLICY "Users can update own profile"
-  ON public.profiles FOR UPDATE
+CREATE POLICY "ND: Users can update own profile"
+  ON public.nd_profiles FOR UPDATE
   USING (auth.uid() = id);
 
-CREATE POLICY "Users can insert own profile"
-  ON public.profiles FOR INSERT
+CREATE POLICY "ND: Users can insert own profile"
+  ON public.nd_profiles FOR INSERT
   WITH CHECK (auth.uid() = id);
 
--- Auto-create profile on signup
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO public.profiles (id, display_name)
-  VALUES (
-    NEW.id,
-    COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1))
-  );
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- ============================================
 
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
-
--- 2. projects
-CREATE TABLE IF NOT EXISTS public.projects (
+-- 2. nd_projects
+CREATE TABLE IF NOT EXISTS public.nd_projects (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
@@ -52,36 +69,38 @@ CREATE TABLE IF NOT EXISTS public.projects (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_projects_user_id ON public.projects(user_id);
-CREATE INDEX idx_projects_visibility ON public.projects(visibility);
-CREATE INDEX idx_projects_updated_at ON public.projects(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_nd_projects_user_id ON public.nd_projects(user_id);
+CREATE INDEX IF NOT EXISTS idx_nd_projects_visibility ON public.nd_projects(visibility);
+CREATE INDEX IF NOT EXISTS idx_nd_projects_updated_at ON public.nd_projects(updated_at DESC);
 
-ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.nd_projects ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Users can view own projects"
-  ON public.projects FOR SELECT
+CREATE POLICY "ND: Users can view own projects"
+  ON public.nd_projects FOR SELECT
   USING (auth.uid() = user_id);
 
-CREATE POLICY "Anyone can view public projects"
-  ON public.projects FOR SELECT
+CREATE POLICY "ND: Anyone can view public projects"
+  ON public.nd_projects FOR SELECT
   USING (visibility = 'public');
 
-CREATE POLICY "Users can create own projects"
-  ON public.projects FOR INSERT
+CREATE POLICY "ND: Users can create own projects"
+  ON public.nd_projects FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Users can update own projects"
-  ON public.projects FOR UPDATE
+CREATE POLICY "ND: Users can update own projects"
+  ON public.nd_projects FOR UPDATE
   USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can delete own projects"
-  ON public.projects FOR DELETE
+CREATE POLICY "ND: Users can delete own projects"
+  ON public.nd_projects FOR DELETE
   USING (auth.uid() = user_id);
 
--- 3. nodes
-CREATE TABLE IF NOT EXISTS public.nodes (
+-- ============================================
+
+-- 3. nd_nodes
+CREATE TABLE IF NOT EXISTS public.nd_nodes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+  project_id UUID NOT NULL REFERENCES public.nd_projects(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   summary TEXT,
   content TEXT,
@@ -91,99 +110,103 @@ CREATE TABLE IF NOT EXISTS public.nodes (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_nodes_project_id ON public.nodes(project_id);
-CREATE INDEX idx_nodes_order ON public.nodes(project_id, order_index);
+CREATE INDEX IF NOT EXISTS idx_nd_nodes_project_id ON public.nd_nodes(project_id);
+CREATE INDEX IF NOT EXISTS idx_nd_nodes_order ON public.nd_nodes(project_id, order_index);
 
-ALTER TABLE public.nodes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.nd_nodes ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Users can view nodes of own projects"
-  ON public.nodes FOR SELECT
+CREATE POLICY "ND: Users can view nodes of own projects"
+  ON public.nd_nodes FOR SELECT
   USING (
     EXISTS (
-      SELECT 1 FROM public.projects
-      WHERE projects.id = nodes.project_id
-      AND (projects.user_id = auth.uid() OR projects.visibility = 'public')
+      SELECT 1 FROM public.nd_projects
+      WHERE nd_projects.id = nd_nodes.project_id
+      AND (nd_projects.user_id = auth.uid() OR nd_projects.visibility = 'public')
     )
   );
 
-CREATE POLICY "Users can insert nodes into own projects"
-  ON public.nodes FOR INSERT
+CREATE POLICY "ND: Users can insert nodes into own projects"
+  ON public.nd_nodes FOR INSERT
   WITH CHECK (
     EXISTS (
-      SELECT 1 FROM public.projects
-      WHERE projects.id = nodes.project_id
-      AND projects.user_id = auth.uid()
+      SELECT 1 FROM public.nd_projects
+      WHERE nd_projects.id = nd_nodes.project_id
+      AND nd_projects.user_id = auth.uid()
     )
   );
 
-CREATE POLICY "Users can update nodes of own projects"
-  ON public.nodes FOR UPDATE
+CREATE POLICY "ND: Users can update nodes of own projects"
+  ON public.nd_nodes FOR UPDATE
   USING (
     EXISTS (
-      SELECT 1 FROM public.projects
-      WHERE projects.id = nodes.project_id
-      AND projects.user_id = auth.uid()
+      SELECT 1 FROM public.nd_projects
+      WHERE nd_projects.id = nd_nodes.project_id
+      AND nd_projects.user_id = auth.uid()
     )
   );
 
-CREATE POLICY "Users can delete nodes of own projects"
-  ON public.nodes FOR DELETE
+CREATE POLICY "ND: Users can delete nodes of own projects"
+  ON public.nd_nodes FOR DELETE
   USING (
     EXISTS (
-      SELECT 1 FROM public.projects
-      WHERE projects.id = nodes.project_id
-      AND projects.user_id = auth.uid()
+      SELECT 1 FROM public.nd_projects
+      WHERE nd_projects.id = nd_nodes.project_id
+      AND nd_projects.user_id = auth.uid()
     )
   );
 
--- 4. edges
-CREATE TABLE IF NOT EXISTS public.edges (
+-- ============================================
+
+-- 4. nd_edges
+CREATE TABLE IF NOT EXISTS public.nd_edges (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
-  from_node_id UUID NOT NULL REFERENCES public.nodes(id) ON DELETE CASCADE,
-  to_node_id UUID NOT NULL REFERENCES public.nodes(id) ON DELETE CASCADE,
+  project_id UUID NOT NULL REFERENCES public.nd_projects(id) ON DELETE CASCADE,
+  from_node_id UUID NOT NULL REFERENCES public.nd_nodes(id) ON DELETE CASCADE,
+  to_node_id UUID NOT NULL REFERENCES public.nd_nodes(id) ON DELETE CASCADE,
   type TEXT NOT NULL CHECK (type IN ('tree', 'flow', 'dependency')),
   label TEXT,
   order_index INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_edges_project_id ON public.edges(project_id);
+CREATE INDEX IF NOT EXISTS idx_nd_edges_project_id ON public.nd_edges(project_id);
 
-ALTER TABLE public.edges ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.nd_edges ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Users can view edges of accessible projects"
-  ON public.edges FOR SELECT
+CREATE POLICY "ND: Users can view edges of accessible projects"
+  ON public.nd_edges FOR SELECT
   USING (
     EXISTS (
-      SELECT 1 FROM public.projects
-      WHERE projects.id = edges.project_id
-      AND (projects.user_id = auth.uid() OR projects.visibility = 'public')
+      SELECT 1 FROM public.nd_projects
+      WHERE nd_projects.id = nd_edges.project_id
+      AND (nd_projects.user_id = auth.uid() OR nd_projects.visibility = 'public')
     )
   );
 
-CREATE POLICY "Users can insert edges into own projects"
-  ON public.edges FOR INSERT
+CREATE POLICY "ND: Users can insert edges into own projects"
+  ON public.nd_edges FOR INSERT
   WITH CHECK (
     EXISTS (
-      SELECT 1 FROM public.projects
-      WHERE projects.id = edges.project_id
-      AND projects.user_id = auth.uid()
+      SELECT 1 FROM public.nd_projects
+      WHERE nd_projects.id = nd_edges.project_id
+      AND nd_projects.user_id = auth.uid()
     )
   );
 
-CREATE POLICY "Users can delete edges of own projects"
-  ON public.edges FOR DELETE
+CREATE POLICY "ND: Users can delete edges of own projects"
+  ON public.nd_edges FOR DELETE
   USING (
     EXISTS (
-      SELECT 1 FROM public.projects
-      WHERE projects.id = edges.project_id
-      AND projects.user_id = auth.uid()
+      SELECT 1 FROM public.nd_projects
+      WHERE nd_projects.id = nd_edges.project_id
+      AND nd_projects.user_id = auth.uid()
     )
   );
 
--- 5. user_provider_keys
-CREATE TABLE IF NOT EXISTS public.user_provider_keys (
+-- ============================================
+
+-- 5. nd_user_provider_keys
+CREATE TABLE IF NOT EXISTS public.nd_user_provider_keys (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   provider TEXT NOT NULL CHECK (provider IN ('openrouter')),
@@ -193,29 +216,31 @@ CREATE TABLE IF NOT EXISTS public.user_provider_keys (
   UNIQUE(user_id, provider)
 );
 
-ALTER TABLE public.user_provider_keys ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.nd_user_provider_keys ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Users can view own keys"
-  ON public.user_provider_keys FOR SELECT
+CREATE POLICY "ND: Users can view own keys"
+  ON public.nd_user_provider_keys FOR SELECT
   USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can insert own keys"
-  ON public.user_provider_keys FOR INSERT
+CREATE POLICY "ND: Users can insert own keys"
+  ON public.nd_user_provider_keys FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Users can update own keys"
-  ON public.user_provider_keys FOR UPDATE
+CREATE POLICY "ND: Users can update own keys"
+  ON public.nd_user_provider_keys FOR UPDATE
   USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can delete own keys"
-  ON public.user_provider_keys FOR DELETE
+CREATE POLICY "ND: Users can delete own keys"
+  ON public.nd_user_provider_keys FOR DELETE
   USING (auth.uid() = user_id);
 
--- 6. generation_logs
-CREATE TABLE IF NOT EXISTS public.generation_logs (
+-- ============================================
+
+-- 6. nd_generation_logs
+CREATE TABLE IF NOT EXISTS public.nd_generation_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
-  project_id UUID REFERENCES public.projects(id) ON DELETE SET NULL,
+  project_id UUID REFERENCES public.nd_projects(id) ON DELETE SET NULL,
   mode TEXT,
   topic TEXT,
   provider TEXT,
@@ -225,39 +250,37 @@ CREATE TABLE IF NOT EXISTS public.generation_logs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_generation_logs_user_id ON public.generation_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_nd_generation_logs_user_id ON public.nd_generation_logs(user_id);
 
-ALTER TABLE public.generation_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.nd_generation_logs ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Users can view own generation logs"
-  ON public.generation_logs FOR SELECT
+CREATE POLICY "ND: Users can view own generation logs"
+  ON public.nd_generation_logs FOR SELECT
   USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can insert own generation logs"
-  ON public.generation_logs FOR INSERT
+CREATE POLICY "ND: Users can insert own generation logs"
+  ON public.nd_generation_logs FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
--- 7. updated_at trigger function
-CREATE OR REPLACE FUNCTION public.update_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = now();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+-- ============================================
 
-CREATE TRIGGER set_projects_updated_at
-  BEFORE UPDATE ON public.projects
-  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+-- 7. updated_at トリガー
+DROP TRIGGER IF EXISTS nd_set_projects_updated_at ON public.nd_projects;
+CREATE TRIGGER nd_set_projects_updated_at
+  BEFORE UPDATE ON public.nd_projects
+  FOR EACH ROW EXECUTE FUNCTION public.nd_update_updated_at();
 
-CREATE TRIGGER set_nodes_updated_at
-  BEFORE UPDATE ON public.nodes
-  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+DROP TRIGGER IF EXISTS nd_set_nodes_updated_at ON public.nd_nodes;
+CREATE TRIGGER nd_set_nodes_updated_at
+  BEFORE UPDATE ON public.nd_nodes
+  FOR EACH ROW EXECUTE FUNCTION public.nd_update_updated_at();
 
-CREATE TRIGGER set_profiles_updated_at
-  BEFORE UPDATE ON public.profiles
-  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+DROP TRIGGER IF EXISTS nd_set_profiles_updated_at ON public.nd_profiles;
+CREATE TRIGGER nd_set_profiles_updated_at
+  BEFORE UPDATE ON public.nd_profiles
+  FOR EACH ROW EXECUTE FUNCTION public.nd_update_updated_at();
 
-CREATE TRIGGER set_user_provider_keys_updated_at
-  BEFORE UPDATE ON public.user_provider_keys
-  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+DROP TRIGGER IF EXISTS nd_set_user_provider_keys_updated_at ON public.nd_user_provider_keys;
+CREATE TRIGGER nd_set_user_provider_keys_updated_at
+  BEFORE UPDATE ON public.nd_user_provider_keys
+  FOR EACH ROW EXECUTE FUNCTION public.nd_update_updated_at();

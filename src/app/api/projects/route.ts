@@ -14,7 +14,7 @@ export async function GET(request: Request) {
     const search = searchParams.get('q')?.trim();
 
     let query = supabase
-      .from('projects')
+      .from('nd_projects')
       .select('id, title, topic, mode, visibility, updated_at')
       .eq('user_id', user.id)
       .order('updated_at', { ascending: false });

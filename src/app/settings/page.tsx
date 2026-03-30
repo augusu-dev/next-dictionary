@@ -33,7 +33,7 @@ export default function SettingsPage() {
         const { createClient } = await import('@/lib/supabase/client');
         const supabase = createClient();
         const { data } = await supabase
-          .from('user_provider_keys')
+          .from('nd_user_provider_keys')
           .select('id')
           .eq('user_id', user.id)
           .eq('provider', 'openrouter')
