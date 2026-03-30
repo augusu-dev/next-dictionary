@@ -1,6 +1,6 @@
 import type { LLMConfig } from '@/types';
 
-const DEFAULT_MODEL = 'google/gemini-2.0-flash-001';
+const DEFAULT_MODEL = 'nvidia/nemotron-3-super-49b';
 
 interface OpenRouterMessage {
   role: 'system' | 'user' | 'assistant';
