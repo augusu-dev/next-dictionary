@@ -42,7 +42,8 @@ export async function POST(request: Request) {
       apiKey = decrypt(userKey.encrypted_key, secret);
       usedUserKey = true;
     } else {
-      apiKey = process.env.OPENROUTER_API_KEY_FREE!;
+      apiKey = process.env.OPENROUTER_API_KEY_FREE || process.env.OPENROUTER_API_KEY_FREE || 'http://localhost:3000';
+;
       if (!apiKey) throw new Error('Free API key not configured');
     }
 
